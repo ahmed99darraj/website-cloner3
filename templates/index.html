@@ -88,41 +88,58 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="card-title text-center mb-4">استنساخ المواقع</h2>
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
                 <form id="cloneForm" class="mb-4">
                     <div class="input-group">
-                        <input type="text" id="url" class="form-control" placeholder="أدخل رابط الموقع" required>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-clone me-2"></i>استنساخ
-                        </button>
+                        <input type="url" id="urlInput" class="form-control" placeholder="أدخل رابط الموقع" required>
+                        <div class="input-group-append">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-clone me-2"></i>استنساخ
+                            </button>
+                            <button type="button" id="openNewWindow" class="btn btn-secondary" style="display: none;">
+                                <i class="fas fa-external-link-alt me-2"></i>فتح في نافذة جديدة
+                            </button>
+                        </div>
                     </div>
-                    <div id="errorMessage" class="error-message"></div>
                 </form>
-                <div id="preview">
-                    <div class="edit-toolbar">
-                        <button id="editModeBtn" class="btn btn-outline-primary">
-                            <i class="fas fa-edit me-1"></i>وضع التحرير
-                        </button>
-                        <button id="undoBtn" class="btn btn-outline-secondary" disabled>
-                            <i class="fas fa-undo"></i>
-                        </button>
-                        <button id="redoBtn" class="btn btn-outline-secondary" disabled>
-                            <i class="fas fa-redo"></i>
-                        </button>
-                        <button id="deleteBtn" class="btn btn-outline-danger" disabled>
-                            <i class="fas fa-trash"></i>
-                        </button>
-                        <button id="downloadBtn" class="btn btn-success float-start">
-                            <i class="fas fa-download me-2"></i>تحميل الموقع
-                        </button>
+                <div class="alert alert-danger" id="errorAlert" style="display: none;">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span id="errorMessage"></span>
+                    <div class="mt-2 small" id="errorHelp" style="display: none;">
+                        <strong>نصائح:</strong>
+                        <ul>
+                            <li>تأكد من أن الرابط صحيح ويبدأ بـ http:// أو https://</li>
+                            <li>بعض المواقع لا تسمح بالاستنساخ لأسباب أمنية</li>
+                            <li>يمكنك استخدام زر "فتح في نافذة جديدة" للمواقع المحمية</li>
+                            <li>جرب موقعاً آخر إذا استمرت المشكلة</li>
+                        </ul>
                     </div>
-                    <iframe id="previewFrame"></iframe>
                 </div>
             </div>
         </div>
+    </div>
+
+    <div id="preview">
+        <div class="edit-toolbar">
+            <button id="editModeBtn" class="btn btn-outline-primary">
+                <i class="fas fa-edit me-1"></i>وضع التحرير
+            </button>
+            <button id="undoBtn" class="btn btn-outline-secondary" disabled>
+                <i class="fas fa-undo"></i>
+            </button>
+            <button id="redoBtn" class="btn btn-outline-secondary" disabled>
+                <i class="fas fa-redo"></i>
+            </button>
+            <button id="deleteBtn" class="btn btn-outline-danger" disabled>
+                <i class="fas fa-trash"></i>
+            </button>
+            <button id="downloadBtn" class="btn btn-success float-start">
+                <i class="fas fa-download me-2"></i>تحميل الموقع
+            </button>
+        </div>
+        <iframe id="previewFrame"></iframe>
     </div>
 
     <!-- Modal for editing -->
@@ -175,6 +192,7 @@
             let editHistory = [];
             let historyIndex = -1;
             const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+            let currentUrl = '';
 
             // اختبار اتصال الخادم
             $.get('/test')
@@ -184,49 +202,53 @@
 
             $('#cloneForm').on('submit', function(e) {
                 e.preventDefault();
-                
-                const url = $('#url').val().trim();
-                if (!url) {
-                    showError('الرجاء إدخال رابط الموقع');
-                    return;
-                }
+                currentUrl = $('#urlInput').val();
+                cloneWebsite(currentUrl);
+            });
 
+            $('#openNewWindow').on('click', function() {
+                if (currentUrl) {
+                    window.open(currentUrl, '_blank');
+                }
+            });
+
+            function cloneWebsite(url) {
                 $('#loading').show();
                 $('#preview').hide();
-                $('#errorMessage').hide();
+                $('#errorAlert').hide();
+                $('#openNewWindow').hide();
 
                 $.ajax({
                     url: '/clone',
                     method: 'POST',
                     data: { url: url },
-                    timeout: 30000,
                     success: function(response) {
                         if (response.status === 'success') {
                             clonedHtml = response.html;
                             showPreview(response.html);
                             resetEditState();
                         } else {
-                            showError(response.message || 'حدث خطأ أثناء استنساخ الموقع');
+                            showError(response.message);
+                            // إظهار زر النافذة الجديدة إذا كان الخطأ متعلق بالأمان
+                            if (response.message.includes('لا يسمح بالعرض في إطار')) {
+                                $('#openNewWindow').show();
+                            } else {
+                                $('#openNewWindow').hide();
+                            }
                         }
-                    },
-                    error: function(xhr, status, error) {
-                        if (status === 'timeout') {
-                            showError('انتهت مهلة الاتصال. الرجاء المحاولة مرة أخرى.');
-                        } else {
-                            showError('حدث خطأ أثناء الاتصال بالخادم: ' + error);
-                        }
-                    },
-                    complete: function() {
                         $('#loading').hide();
+                    },
+                    error: function() {
+                        showError('حدث خطأ في الاتصال بالخادم');
+                        $('#loading').hide();
+                        $('#openNewWindow').hide();
                     }
                 });
-            });
+            }
 
             function showPreview(html) {
                 const frame = $('#previewFrame')[0];
-                frame.contentDocument.open();
-                frame.contentDocument.write(html);
-                frame.contentDocument.close();
+                frame.srcdoc = html;
                 $('#preview').show();
 
                 // إضافة CSS للعناصر القابلة للتحرير في الـ iframe
@@ -464,7 +486,12 @@
             }
 
             function showError(message) {
-                $('#errorMessage').text(message).show();
+                $('#errorMessage').text(message);
+                $('#errorAlert').fadeIn();
+                $('#errorHelp').slideDown();
+                setTimeout(() => {
+                    $('#errorHelp').slideUp();
+                }, 10000);
             }
         });
     </script>

@@ -18,7 +18,10 @@ import uuid
 # تعطيل تحذيرات SSL
 urllib3.disable_warnings(InsecureRequestWarning)
 
-app = Flask(__name__)
+app = Flask(__name__,
+    template_folder='templates',  # تحديد مجلد القوالب
+    static_folder='assets'        # تحديد مجلد الملفات الثابتة
+)
 
 # تكوين المجلدات
 UPLOAD_FOLDER = '/tmp/uploads'
@@ -33,6 +36,10 @@ os.makedirs(SAVED_SITES_FOLDER, exist_ok=True)
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/test')
+def test():
+    return jsonify({'status': 'success'})
 
 @app.route('/clone', methods=['POST'])
 def clone_website():

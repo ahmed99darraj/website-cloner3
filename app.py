@@ -42,30 +42,62 @@ def clone_website():
     try:
         data = request.get_json()
         if not data or 'url' not in data:
-            return jsonify({'error': 'No URL provided'}), 400
+            return jsonify({
+                'status': 'error',
+                'error': 'الرجاء إدخال رابط الموقع'
+            }), 400
 
         url = data['url']
-        
-        # التحقق من صحة URL
         if not url.startswith(('http://', 'https://')):
-            return jsonify({'error': 'Invalid URL format'}), 400
+            return jsonify({
+                'status': 'error',
+                'error': 'الرجاء إدخال رابط يبدأ بـ http:// أو https://'
+            }), 400
 
-        # إضافة timeout للطلب
-        response = requests.get(url, verify=False, timeout=8)
-        
-        # تحليل HTML
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+        try:
+            response = requests.get(url, verify=False, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.SSLError:
+            return jsonify({
+                'status': 'error',
+                'error': 'حدث خطأ في شهادة SSL للموقع'
+            }), 400
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                'status': 'error',
+                'error': 'لا يمكن الاتصال بالموقع. تأكد من صحة الرابط وأن الموقع متاح.'
+            }), 400
+        except requests.exceptions.Timeout:
+            return jsonify({
+                'status': 'error',
+                'error': 'انتهت مهلة الاتصال بالموقع. حاول مرة أخرى.'
+            }), 400
+        except requests.exceptions.RequestException as e:
+            return jsonify({
+                'status': 'error',
+                'error': f'حدث خطأ أثناء الاتصال بالموقع: {str(e)}'
+            }), 400
+
+        if 'text/html' not in response.headers.get('content-type', '').lower():
+            return jsonify({
+                'status': 'error',
+                'error': 'عذراً، يمكن فقط استنساخ صفحات HTML'
+            }), 400
+
+        html_content = response.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+
         return jsonify({
             'status': 'success',
             'html': str(soup)
         })
 
-    except requests.Timeout:
-        return jsonify({'error': 'Request timed out'}), 408
     except Exception as e:
-        logging.error(f"Error cloning website: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f'Error: {str(e)}\\n{traceback.format_exc()}')
+        return jsonify({
+            'status': 'error',
+            'error': 'حدث خطأ غير متوقع. حاول مرة أخرى.'
+        }), 500
 
 @app.route('/save', methods=['POST'])
 def save_website():

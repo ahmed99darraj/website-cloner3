@@ -194,69 +194,56 @@
             const editModal = new bootstrap.Modal(document.getElementById('editModal'));
             let currentUrl = '';
 
-            // تعديل طريقة اختبار الخادم
-            function testServer() {
-                $('#cloneForm').on('submit', function(e) {
-                    e.preventDefault();
-                    let url = $('#urlInput').val();
-                    if (!url) {
-                        showError('الرجاء إدخال رابط الموقع');
-                        return;
-                    }
-                    cloneWebsite(url);
-                });
-            }
+            $('#cloneForm').on('submit', function(e) {
+                e.preventDefault();
+                const url = $('#urlInput').val().trim();
+                
+                if (!url) {
+                    showError('الرجاء إدخال رابط الموقع');
+                    return;
+                }
 
-            testServer();
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    showError('الرجاء إدخال رابط يبدأ بـ http:// أو https://');
+                    return;
+                }
+
+                $('#loading').show();
+                cloneWebsite(url);
+            });
 
             function cloneWebsite(url) {
-                $('#loading').show();
-                $('#preview').hide();
-                $('#errorAlert').hide();
-                $('#openNewWindow').hide();
-
                 $.ajax({
                     url: '/clone',
                     method: 'POST',
-                    data: { url: url },
+                    contentType: 'application/json',
+                    data: JSON.stringify({ url: url }),
                     success: function(response) {
+                        $('#loading').hide();
                         if (response.status === 'success') {
-                            clonedHtml = response.html;
                             showPreview(response.html);
-                            resetEditState();
+                            currentUrl = url;
+                            $('#openNewWindow').show();
                         } else {
-                            showError(response.message);
-                            // إظهار زر النافذة الجديدة إذا كان الخطأ متعلق بالأمان
-                            if (response.message.includes('لا يسمح بالعرض في إطار')) {
-                                $('#openNewWindow').show();
-                            } else {
-                                $('#openNewWindow').hide();
-                            }
+                            showError(response.message || 'حدث خطأ أثناء استنساخ الموقع');
                         }
-                        $('#loading').hide();
                     },
-                    error: function() {
-                        showError('حدث خطأ في الاتصال بالخادم');
+                    error: function(xhr, status, error) {
                         $('#loading').hide();
-                        $('#openNewWindow').hide();
+                        if (xhr.status === 0) {
+                            showError('لا يمكن الوصول إلى الموقع المطلوب. تأكد من أن الموقع متاح.');
+                        } else {
+                            showError(xhr.responseJSON?.error || 'حدث خطأ أثناء استنساخ الموقع');
+                        }
                     }
                 });
             }
 
-            function showPreview(html) {
-                const frame = $('#previewFrame')[0];
-                frame.srcdoc = html;
-                $('#preview').show();
-
-                // إضافة CSS للعناصر القابلة للتحرير في الـ iframe
-                const style = frame.contentDocument.createElement('style');
-                style.textContent = `
-                    .editable { outline: 2px dashed transparent; transition: outline 0.2s; cursor: pointer; }
-                    .editable:hover { outline: 2px dashed #007bff; }
-                    .editable.active { outline: 2px solid #28a745; }
-                `;
-                frame.contentDocument.head.appendChild(style);
-            }
+            $('#openNewWindow').on('click', function() {
+                if (currentUrl) {
+                    window.open(currentUrl, '_blank');
+                }
+            });
 
             // تفعيل وضع التحرير
             $('#editModeBtn').on('click', function() {
@@ -527,6 +514,21 @@
                 setTimeout(() => {
                     $('#errorHelp').slideUp();
                 }, 10000);
+            }
+
+            function showPreview(html) {
+                const frame = $('#previewFrame')[0];
+                frame.srcdoc = html;
+                $('#preview').show();
+
+                // إضافة CSS للعناصر القابلة للتحرير في الـ iframe
+                const style = frame.contentDocument.createElement('style');
+                style.textContent = `
+                    .editable { outline: 2px dashed transparent; transition: outline 0.2s; cursor: pointer; }
+                    .editable:hover { outline: 2px dashed #007bff; }
+                    .editable.active { outline: 2px solid #28a745; }
+                `;
+                frame.contentDocument.head.appendChild(style);
             }
         });
     </script>

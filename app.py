@@ -47,20 +47,69 @@ def clone_website():
                 'error': 'الرجاء إدخال رابط الموقع'
             }), 400
 
-        url = data['url']
+        url = data['url'].strip()
         if not url.startswith(('http://', 'https://')):
             return jsonify({
                 'status': 'error',
                 'error': 'الرجاء إدخال رابط يبدأ بـ http:// أو https://'
             }), 400
 
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+
         try:
-            response = requests.get(url, verify=False, timeout=10)
+            response = requests.get(url, 
+                                 headers=headers,
+                                 verify=False, 
+                                 timeout=15,
+                                 allow_redirects=True)
+            
+            # تسجيل معلومات الاستجابة للتشخيص
+            app.logger.info(f"Response status: {response.status_code}")
+            app.logger.info(f"Response headers: {response.headers}")
+            
+            if response.status_code == 403:
+                return jsonify({
+                    'status': 'error',
+                    'error': 'هذا الموقع لا يسمح بالوصول إليه. جرب موقعاً آخر.'
+                }), 403
+                
             response.raise_for_status()
+            
+            content_type = response.headers.get('content-type', '').lower()
+            if not any(t in content_type for t in ['text/html', 'application/xhtml+xml']):
+                return jsonify({
+                    'status': 'error',
+                    'error': f'نوع المحتوى غير مدعوم: {content_type}. يمكن فقط استنساخ صفحات HTML.'
+                }), 400
+
+            html_content = response.text
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # تحويل الروابط النسبية إلى روابط مطلقة
+            base_url = response.url
+            for tag in soup.find_all(['a', 'img', 'link', 'script']):
+                for attr in ['href', 'src']:
+                    if tag.get(attr):
+                        try:
+                            tag[attr] = urllib.parse.urljoin(base_url, tag[attr])
+                        except Exception as e:
+                            app.logger.warning(f"Error converting URL {tag.get(attr)}: {str(e)}")
+
+            return jsonify({
+                'status': 'success',
+                'html': str(soup)
+            })
+
         except requests.exceptions.SSLError:
             return jsonify({
                 'status': 'error',
-                'error': 'حدث خطأ في شهادة SSL للموقع'
+                'error': 'حدث خطأ في شهادة SSL للموقع. حاول استخدام http:// بدلاً من https://'
             }), 400
         except requests.exceptions.ConnectionError:
             return jsonify({
@@ -70,30 +119,22 @@ def clone_website():
         except requests.exceptions.Timeout:
             return jsonify({
                 'status': 'error',
-                'error': 'انتهت مهلة الاتصال بالموقع. حاول مرة أخرى.'
+                'error': 'انتهت مهلة الاتصال بالموقع. حاول مرة أخرى أو جرب موقعاً آخر.'
+            }), 400
+        except requests.exceptions.TooManyRedirects:
+            return jsonify({
+                'status': 'error',
+                'error': 'تم تجاوز الحد الأقصى لعدد إعادة التوجيهات. جرب موقعاً آخر.'
             }), 400
         except requests.exceptions.RequestException as e:
+            app.logger.error(f"Request error: {str(e)}")
             return jsonify({
                 'status': 'error',
-                'error': f'حدث خطأ أثناء الاتصال بالموقع: {str(e)}'
+                'error': 'حدث خطأ أثناء محاولة الوصول إلى الموقع. جرب موقعاً آخر.'
             }), 400
-
-        if 'text/html' not in response.headers.get('content-type', '').lower():
-            return jsonify({
-                'status': 'error',
-                'error': 'عذراً، يمكن فقط استنساخ صفحات HTML'
-            }), 400
-
-        html_content = response.text
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        return jsonify({
-            'status': 'success',
-            'html': str(soup)
-        })
 
     except Exception as e:
-        app.logger.error(f'Error: {str(e)}\\n{traceback.format_exc()}')
+        app.logger.error(f'Unexpected error: {str(e)}\\n{traceback.format_exc()}')
         return jsonify({
             'status': 'error',
             'error': 'حدث خطأ غير متوقع. حاول مرة أخرى.'

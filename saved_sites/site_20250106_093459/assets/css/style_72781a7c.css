@@ -1,0 +1,1 @@
+.gadsdiv{display:block; align-content:center;margin: 0 auto;text-align:center;}.gads{display:block;}.gadss{width: 234px;height:60px;}@media(min-width: 350px) { .gadss { width: 320px; height:100px; } }@media(min-width: 400px) { .gadss { width: 320px; height:100px;} }@media(min-width: 600px) { .gadss { width: 480px; } }@media(min-width: 800px) { .gadss { width: auto; } }

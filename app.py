@@ -107,11 +107,34 @@ def clone_website():
                 'message': 'الرجاء إدخال رابط الموقع'
             })
 
+        # تنظيف وتحقق من الرابط
         url = url.strip()
+        if not url:
+            return jsonify({
+                'status': 'error',
+                'message': 'الرابط فارغ'
+            })
+
+        # إضافة البروتوكول إذا لم يكن موجوداً
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
 
         logger.info(f"Attempting to clone URL: {url}")
+
+        # التحقق من صحة تنسيق URL
+        try:
+            parsed_url = urllib.parse.urlparse(url)
+            if not all([parsed_url.scheme, parsed_url.netloc]):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'الرابط غير صالح'
+                })
+        except Exception as e:
+            logger.error(f"URL parsing error: {str(e)}")
+            return jsonify({
+                'status': 'error',
+                'message': 'خطأ في تنسيق الرابط'
+            })
 
         # إعداد جلسة مع إعدادات محسنة
         session = requests.Session()
@@ -214,20 +237,45 @@ def clone_website():
             for script in soup.find_all('script'):
                 if script.get('src'):
                     try:
-                        script_url = urllib.parse.urljoin(url, script['src'])
-                        script_response = session.get(script_url, headers=headers, timeout=5)
+                        script_url = script['src']
+                        if not script_url.startswith(('http://', 'https://')):
+                            if script_url.startswith('//'):
+                                script_url = 'https:' + script_url
+                            else:
+                                script_url = urllib.parse.urljoin(url, script_url)
+                        
+                        script_response = session.get(script_url, headers=headers, timeout=5, verify=False)
                         if script_response.status_code == 200:
                             script_tag = soup.new_tag('script')
                             script_tag.string = script_response.text
                             scripts_content.append(script_tag)
-                    except:
+                    except Exception as e:
+                        logger.error(f"Error loading script {script_url}: {str(e)}")
                         continue
                 elif script.string:
                     scripts_content.append(script)
 
-            # إزالة السكربتات القديمة
-            for script in soup.find_all('script'):
-                script.decompose()
+            # معالجة الصور
+            for img in soup.find_all('img'):
+                if img.get('src'):
+                    try:
+                        img_url = img['src']
+                        if img_url.startswith('data:'):
+                            continue
+                            
+                        if not img_url.startswith(('http://', 'https://')):
+                            if img_url.startswith('//'):
+                                img_url = 'https:' + img_url
+                            else:
+                                img_url = urllib.parse.urljoin(url, img_url)
+                                
+                        img_response = session.get(img_url, headers=headers, timeout=5, verify=False)
+                        if img_response.status_code == 200:
+                            img_data = base64.b64encode(img_response.content).decode('utf-8')
+                            img['src'] = f"data:image/{img_response.headers.get('content-type', 'image/jpeg').split('/')[-1]};base64,{img_data}"
+                    except Exception as e:
+                        logger.error(f"Error loading image {img_url}: {str(e)}")
+                        continue
 
             # إضافة CSS للتحرير
             edit_style = soup.new_tag('style')
@@ -290,197 +338,116 @@ def save_website():
                 'message': 'لم يتم توفير محتوى HTML'
             })
 
-        # إنشاء مجلد للمواقع المحفوظة إذا لم يكن موجوداً
+        # إنشاء مجلد للمواقع المحفوظة
         save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_sites')
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 
-        # إنشاء اسم مجلد فريد للموقع
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        site_dir = os.path.join(save_dir, f'site_{timestamp}')
-        os.makedirs(site_dir)
-
-        # تحليل HTML لاستخراج الموارد
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        # إنشاء مجلدات للموارد
-        assets_dir = os.path.join(site_dir, 'assets')
-        css_dir = os.path.join(assets_dir, 'css')
-        js_dir = os.path.join(assets_dir, 'js')
-        images_dir = os.path.join(assets_dir, 'images')
-        fonts_dir = os.path.join(assets_dir, 'fonts')
-
-        for directory in [assets_dir, css_dir, js_dir, images_dir, fonts_dir]:
+        for directory in [save_dir, templates_dir]:
             if not os.path.exists(directory):
                 os.makedirs(directory)
 
-        # معالجة الصور
-        for img in soup.find_all('img'):
-            if img.get('src', '').startswith('data:'):
-                try:
-                    # استخراج نوع الصورة والبيانات
-                    img_data = img['src'].split(';base64,')
-                    if len(img_data) == 2:
-                        img_type = img_data[0].split('/')[-1].split(';')[0]
-                        img_content = base64.b64decode(img_data[1])
-                        
-                        # حفظ الصورة
-                        img_filename = f'image_{uuid.uuid4().hex[:8]}.{img_type}'
-                        img_path = os.path.join(images_dir, img_filename)
-                        with open(img_path, 'wb') as f:
-                            f.write(img_content)
-                        
-                        # تحديث مسار الصورة
-                        img['src'] = f'assets/images/{img_filename}'
-                except Exception as e:
-                    logger.warning(f"Failed to save image: {str(e)}")
-
-        # معالجة CSS
-        for style in soup.find_all('style'):
-            if style.string:
-                try:
-                    # حفظ CSS في ملف منفصل
-                    css_filename = f'style_{uuid.uuid4().hex[:8]}.css'
-                    css_path = os.path.join(css_dir, css_filename)
-                    with open(css_path, 'w', encoding='utf-8') as f:
-                        f.write(style.string)
-                    
-                    # إنشاء رابط للملف CSS
-                    link_tag = soup.new_tag('link')
-                    link_tag['rel'] = 'stylesheet'
-                    link_tag['href'] = f'assets/css/{css_filename}'
-                    style.replace_with(link_tag)
-                except Exception as e:
-                    logger.warning(f"Failed to save CSS: {str(e)}")
-
-        # معالجة JavaScript
-        for script in soup.find_all('script'):
-            if script.string:
-                try:
-                    # حفظ JavaScript في ملف منفصل
-                    js_filename = f'script_{uuid.uuid4().hex[:8]}.js'
-                    js_path = os.path.join(js_dir, js_filename)
-                    with open(js_path, 'w', encoding='utf-8') as f:
-                        f.write(script.string)
-                    
-                    # تحديث مسار السكربت
-                    script['src'] = f'assets/js/{js_filename}'
-                    script.string = ''
-                except Exception as e:
-                    logger.warning(f"Failed to save JavaScript: {str(e)}")
-
-        # حفظ ملف HTML الرئيسي
-        index_path = os.path.join(site_dir, 'index.html')
-        with open(index_path, 'w', encoding='utf-8') as f:
-            f.write(str(soup))
-
-        # إنشاء ملف ZIP
+        # إنشاء اسم الملف
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         zip_filename = f'website_{timestamp}.zip'
         zip_path = os.path.join(save_dir, zip_filename)
-        
-        def zipdir(path, ziph):
-            for root, dirs, files in os.walk(path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, path)
-                    ziph.write(file_path, arcname)
 
+        # إنشاء ملف ZIP مباشرة
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipdir(site_dir, zipf)
+            # حفظ ملف HTML
+            zipf.writestr('index.html', html_content)
 
-        # إنشاء ملف للنشر السريع
-        deploy_html = f'''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>تم النشر بنجاح</title>
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    text-align: center;
-                    padding: 20px;
-                    direction: rtl;
-                }}
-                .success-message {{
-                    color: #28a745;
-                    font-size: 24px;
-                    margin: 20px 0;
-                }}
-                .link-container {{
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #f8f9fa;
-                    border-radius: 5px;
-                }}
-                .download-link {{
-                    display: inline-block;
-                    padding: 10px 20px;
-                    background: #007bff;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 5px;
-                    margin: 10px;
-                }}
-                .download-link:hover {{
-                    background: #0056b3;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="success-message">تم حفظ الموقع بنجاح!</div>
-            <div class="link-container">
-                <p>يمكنك الآن:</p>
-                <a href="/download/{zip_filename}" class="download-link">تحميل الموقع كملف ZIP</a>
-                <a href="/view/{timestamp}" class="download-link">عرض الموقع مباشرة</a>
-            </div>
-            <p>تم حفظ الموقع في: {site_dir}</p>
-        </body>
-        </html>
-        '''
-
-        deploy_path = os.path.join(site_dir, 'deploy.html')
-        with open(deploy_path, 'w', encoding='utf-8') as f:
-            f.write(deploy_html)
-
+        # إرجاع مسار الملف للتحميل
+        download_url = url_for('download_file', filename=zip_filename, _external=True)
         return jsonify({
             'status': 'success',
             'message': 'تم حفظ الموقع بنجاح',
-            'zip_file': zip_filename,
-            'site_dir': site_dir,
-            'timestamp': timestamp
+            'download_url': download_url
         })
 
     except Exception as e:
-        logger.error(f"Error saving website: {str(e)}")
+        logger.error(f"Save error: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({
             'status': 'error',
-            'message': f'حدث خطأ أثناء حفظ الموقع: {str(e)}'
+            'message': 'فشل في حفظ الموقع'
         })
 
 @app.route('/download/<filename>')
 def download_file(filename):
     try:
+        # التحقق من صحة اسم الملف
+        if '..' in filename or '/' in filename:
+            return 'Invalid filename', 400
+
+        # التأكد من أن الملف موجود
         save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_sites')
-        return send_from_directory(save_dir, filename, as_attachment=True)
+        file_path = os.path.join(save_dir, filename)
+        
+        if not os.path.isfile(file_path):
+            return 'File not found', 404
+
+        # إرسال الملف
+        response = send_file(
+            file_path,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+        # إضافة headers لمنع التخزين المؤقت
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response
+
     except Exception as e:
-        return f'خطأ في تحميل الملف: {str(e)}'
+        logger.error(f"Download error: {str(e)}")
+        return 'Error downloading file', 500
 
 @app.route('/view/<timestamp>')
 def view_site(timestamp):
     try:
+        if not timestamp or '..' in timestamp:
+            return jsonify({
+                'status': 'error',
+                'message': 'معرف الموقع غير صالح'
+            })
+
         site_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_sites', f'site_{timestamp}')
-        return send_from_directory(site_dir, 'index.html')
+        index_path = os.path.join(site_dir, 'index.html')
+        
+        if not os.path.exists(site_dir) or not os.path.exists(index_path):
+            return jsonify({
+                'status': 'error',
+                'message': 'الموقع غير موجود'
+            })
+            
+        try:
+            return send_from_directory(site_dir, 'index.html', mimetype='text/html')
+        except Exception as e:
+            logger.error(f"Error sending file: {str(e)}")
+            return jsonify({
+                'status': 'error',
+                'message': 'فشل في عرض الموقع'
+            })
+            
     except Exception as e:
-        return f'خطأ في عرض الموقع: {str(e)}'
+        logger.error(f"View error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': 'حدث خطأ أثناء عرض الموقع'
+        })
 
 if __name__ == '__main__':
-    # التأكد من أن المجلد templates موجود
-    if not os.path.exists('templates'):
-        os.makedirs('templates')
-    
+    # التأكد من أن المجلدات المطلوبة موجودة
+    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_sites')
+    templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+
+    for directory in [save_dir, templates_dir]:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
     # طباعة رسالة بدء التشغيل
     logger.info("Starting server on http://localhost:5000")
     

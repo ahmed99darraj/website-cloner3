@@ -437,31 +437,69 @@
 
             // تحميل الموقع
             $('#downloadBtn').on('click', function() {
-                const html = $('#previewFrame').contents().find('html').prop('outerHTML');
+                const loadingDiv = $('#loading');
+                loadingDiv.show();
+                
+                const frame = document.getElementById('previewFrame');
+                const html = frame.contentDocument.documentElement.outerHTML;
                 
                 $.ajax({
                     url: '/save',
-                    type: 'POST',
+                    method: 'POST',
                     data: { html: html },
-                    xhrFields: {
-                        responseType: 'blob'
-                    },
                     success: function(response) {
-                        const blob = new Blob([response], { type: 'application/zip' });
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'website.zip';
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        a.remove();
+                        loadingDiv.hide();
+                        if (response.status === 'success' && response.download_url) {
+                            // إنشاء رابط مؤقت للتحميل
+                            const link = document.createElement('a');
+                            link.style.display = 'none';
+                            link.href = response.download_url;
+                            link.download = ''; // سيستخدم اسم الملف من الخادم
+                            document.body.appendChild(link);
+                            link.click();
+                            setTimeout(() => {
+                                document.body.removeChild(link);
+                            }, 100);
+                            
+                            // عرض رسالة نجاح
+                            showSuccess('جاري تحميل الموقع...');
+                        } else {
+                            showError(response.message || 'فشل في حفظ الموقع');
+                        }
                     },
                     error: function(xhr, status, error) {
-                        showError('فشل في تحميل الموقع');
+                        loadingDiv.hide();
+                        console.error('Save error:', error);
+                        showError('فشل في حفظ الموقع');
                     }
                 });
             });
+
+            // دالة لعرض رسالة نجاح
+            function showSuccess(message) {
+                const alertDiv = $('<div>')
+                    .addClass('alert alert-success')
+                    .text(message)
+                    .css({
+                        'position': 'fixed',
+                        'top': '20px',
+                        'right': '20px',
+                        'z-index': '9999',
+                        'padding': '15px 30px',
+                        'border-radius': '5px',
+                        'box-shadow': '0 2px 5px rgba(0,0,0,0.2)',
+                        'display': 'none'
+                    });
+
+                $('body').append(alertDiv);
+                alertDiv.fadeIn(300);
+
+                setTimeout(() => {
+                    alertDiv.fadeOut(300, function() {
+                        $(this).remove();
+                    });
+                }, 3000);
+            }
 
             function addToHistory(oldState, newState) {
                 editHistory.splice(historyIndex + 1);

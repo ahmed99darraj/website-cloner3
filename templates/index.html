@@ -194,23 +194,20 @@
             const editModal = new bootstrap.Modal(document.getElementById('editModal'));
             let currentUrl = '';
 
-            // اختبار اتصال الخادم
-            $.get('/test')
-                .fail(function() {
-                    showError('لا يمكن الاتصال بالخادم. الرجاء التأكد من تشغيل الخادم.');
+            // تعديل طريقة اختبار الخادم
+            function testServer() {
+                $('#cloneForm').on('submit', function(e) {
+                    e.preventDefault();
+                    let url = $('#urlInput').val();
+                    if (!url) {
+                        showError('الرجاء إدخال رابط الموقع');
+                        return;
+                    }
+                    cloneWebsite(url);
                 });
+            }
 
-            $('#cloneForm').on('submit', function(e) {
-                e.preventDefault();
-                currentUrl = $('#urlInput').val();
-                cloneWebsite(currentUrl);
-            });
-
-            $('#openNewWindow').on('click', function() {
-                if (currentUrl) {
-                    window.open(currentUrl, '_blank');
-                }
-            });
+            testServer();
 
             function cloneWebsite(url) {
                 $('#loading').show();

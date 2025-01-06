@@ -37,10 +37,6 @@ os.makedirs(SAVED_SITES_FOLDER, exist_ok=True)
 def index():
     return render_template('index.html')
 
-@app.route('/test')
-def test():
-    return jsonify({'status': 'success'})
-
 @app.route('/clone', methods=['POST'])
 def clone_website():
     try:
